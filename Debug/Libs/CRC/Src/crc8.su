@@ -1,0 +1,2 @@
+../Libs/CRC/Src/crc8.c:110:9:crc_8	32	static
+../Libs/CRC/Src/crc8.c:137:9:update_crc_8	16	static

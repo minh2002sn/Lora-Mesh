@@ -1,0 +1,2 @@
+../Libs/CRC/Src/crcsick.c:45:10:crc_sick	40	static
+../Libs/CRC/Src/crcsick.c:87:10:update_crc_sick	24	static

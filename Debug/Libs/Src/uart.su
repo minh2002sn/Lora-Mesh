@@ -1,0 +1,5 @@
+../Libs/Src/uart.c:11:6:UART_Init	8	static
+../Libs/Src/uart.c:15:6:UART_Receive	16	static
+../Libs/Src/uart.c:19:13:UART_Handle	16	static
+../Libs/Src/uart.c:26:9:UART_Read	16	static
+../Libs/Src/uart.c:32:10:UART_Available	8	static

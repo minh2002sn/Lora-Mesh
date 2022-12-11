@@ -1,0 +1,3 @@
+../Libs/CRC/Src/crckrmit.c:51:10:crc_kermit	40	static
+../Libs/CRC/Src/crckrmit.c:90:10:update_crc_kermit	24	static
+../Libs/CRC/Src/crckrmit.c:115:13:init_crc_tab	16	static

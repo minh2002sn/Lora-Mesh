@@ -1,0 +1,4 @@
+../Libs/CRC/Src/crc16.c:52:10:crc_16	32	static
+../Libs/CRC/Src/crc16.c:86:10:crc_modbus	32	static
+../Libs/CRC/Src/crc16.c:119:10:update_crc_16	24	static
+../Libs/CRC/Src/crc16.c:144:13:init_crc16_tab	16	static

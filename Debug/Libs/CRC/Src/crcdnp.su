@@ -1,0 +1,3 @@
+../Libs/CRC/Src/crcdnp.c:52:10:crc_dnp	40	static
+../Libs/CRC/Src/crcdnp.c:92:10:update_crc_dnp	24	static
+../Libs/CRC/Src/crcdnp.c:117:13:init_crcdnp_tab	24	static
