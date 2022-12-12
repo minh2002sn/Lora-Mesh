@@ -26,7 +26,7 @@ enum
 
 extern UART_HandleTypeDef FRAME_SYNC_huart;
 
-FRAME_SYNC_DATA_t FS_Data = {};
+FRAME_SYNC_DATA_t FS_Data = {1};
 
 __weak void FRAME_SYNC_Byte_Transmit(uint8_t tx_data)
 {
@@ -149,7 +149,10 @@ void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time
 	// Transmit ETX
 	FRAME_SYNC_Byte_Transmit(ETX);
 
-	FS_Data.device_state = FRAME_SYNC_WAITING_ACK;
+	if(size != 1 && *tx_frame != ACK && *tx_frame != NACK)
+	{
+		FS_Data.device_state = FRAME_SYNC_WAITING_ACK;
+	}
 }
 
 void FRAME_SYNC_Receive(uint8_t rx_data)

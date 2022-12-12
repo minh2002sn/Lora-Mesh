@@ -5,5 +5,5 @@
 ../Libs/Src/Frame_Sync.c:96:6:FRAME_SYNC_Init	4	static
 ../Libs/Src/Frame_Sync.c:101:6:FRAME_SYNC_Change_Setting	16	static
 ../Libs/Src/Frame_Sync.c:106:6:FRAME_SYNC_Transmit	24	static
-../Libs/Src/Frame_Sync.c:155:6:FRAME_SYNC_Receive	16	static
-../Libs/Src/Frame_Sync.c:231:6:FRAME_SYNC_Handle	4	static
+../Libs/Src/Frame_Sync.c:158:6:FRAME_SYNC_Receive	16	static
+../Libs/Src/Frame_Sync.c:234:6:FRAME_SYNC_Handle	4	static
