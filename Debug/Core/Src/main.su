@@ -1,4 +1,4 @@
-../Core/Src/main.c:80:6:BUTTON_Press_Short_Callback	16	static
+../Core/Src/main.c:80:6:BUTTON_Press_Short_Callback	24	static
 ../Core/Src/main.c:88:6:FRAME_SYNC_RxCpltCallback	136	static
 ../Core/Src/main.c:102:6:FRAME_SYNC_RxFailCallback	120	static
 ../Core/Src/main.c:108:6:HAL_UART_RxCpltCallback	16	static
