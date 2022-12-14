@@ -81,7 +81,7 @@ void BUTTON_Press_Short_Callback(BUTTON_HandleTypedef *ButtonX)
 {
 	if(ButtonX == &btn)
 	{
-		FRAME_SYNC_Transmit(1, 1, 5, tx_frame_data, tx_frame_len);
+		FRAME_SYNC_Transmit(1, 1, 5, tx_frame_data, tx_frame_len, 1);
 	}
 }
 
