@@ -95,7 +95,7 @@ uint32_t update_crc_32( uint32_t crc, unsigned char c ) {
 	tmp = crc ^ long_c;
 	crc = (crc >> 8) ^ crc_tab32[ tmp & 0xff ];
 
-	return crc & 0xffffffffL;;
+	return crc & 0xffffffffL;
 
 }  /* update_crc_32 */
 

@@ -1,15 +1,17 @@
 #include "Frame_Sync.h"
 #include "checksum.h"
+#include "SX1278.h"
 
 #define MY_ID						0
 
 #define WAITING_ACK_TIME			10000
 #define WAITING_REPLY_TIME			10000
-#define	WAITING_NEXT_BYTE_TIME		10000
+#define	WAITING_NEXT_BYTE_TIME		500
 
 #define FRAME_SYNC_huart	huart2
 
 extern UART_HandleTypeDef FRAME_SYNC_huart;
+extern SX1278_t hlora;
 
 enum{
 	STX = 0x02,
@@ -122,50 +124,63 @@ void FRAME_SYNC_Change_Setting(FRAME_SYNC_DATA_t *p_new_data)
 
 void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time_to_live, uint8_t *tx_frame, uint8_t size, uint8_t is_requiring_reply)
 {
+	uint8_t temp_packet[MAX_LENGTH_DATA] = {STX};
+	uint8_t packet_length = 1;
 	if(FS_Data.device_state != FRAME_SYNC_READY_TO_TRANSMIT) return;
 	if(time_to_live <= 0) return;
 	FS_Data.tx_checksum = 0xFFFFFFFF;
 
 	// Transmit STX
-	FRAME_SYNC_Byte_Transmit(STX);
+//	FRAME_SYNC_Byte_Transmit(STX);
 
 	// Transmit final destination device id
 	CRC_Update(&FS_Data.tx_checksum, final_des_id);
-	FRAME_SYNC_Byte_Transmit(final_des_id);
+//	FRAME_SYNC_Byte_Transmit(final_des_id);
+	temp_packet[packet_length++] = final_des_id;
 
 	// Transmit temporary destination device id
 	CRC_Update(&FS_Data.tx_checksum, temp_des_id);
-	FRAME_SYNC_Byte_Transmit(temp_des_id);
+//	FRAME_SYNC_Byte_Transmit(temp_des_id);
+	temp_packet[packet_length++] = temp_des_id;
 
 	// Transmit source device id
 	CRC_Update(&FS_Data.tx_checksum, FS_Data.my_id);
-	FRAME_SYNC_Byte_Transmit(FS_Data.my_id);
+//	FRAME_SYNC_Byte_Transmit(FS_Data.my_id);
+	temp_packet[packet_length++] = FS_Data.my_id;
 
 	// Transmit time to live
 	CRC_Update(&FS_Data.tx_checksum, time_to_live);
-	FRAME_SYNC_Byte_Transmit(time_to_live);
+//	FRAME_SYNC_Byte_Transmit(time_to_live);
+	temp_packet[packet_length++] = time_to_live;
 
 	// Transmit data length
 	CRC_Update(&FS_Data.tx_checksum, size);
-	FRAME_SYNC_Byte_Transmit(size);
+//	FRAME_SYNC_Byte_Transmit(size);
+	temp_packet[packet_length++] = size;
 
 	// Transmit data
 	for(int i = 0; i < size; i++)
 	{
 		CRC_Update(&FS_Data.tx_checksum, tx_frame[i]);
-		FRAME_SYNC_Byte_Transmit(tx_frame[i]);
+//		FRAME_SYNC_Byte_Transmit(tx_frame[i]);
 		FS_Data.stored_packet.buffer[i] = tx_frame[i];
+		temp_packet[packet_length++] = tx_frame[i];
 	}
 
 	// Transmit crc
 	FS_Data.tx_checksum = ~FS_Data.tx_checksum;
-	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 0));
-	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 1));
-	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 2));
-	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 3));
+//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 0));
+//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 1));
+//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 2));
+//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 3));
+	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 0);
+	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 1);
+	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 2);
+	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 3);
 
 	// Transmit ETX
-	FRAME_SYNC_Byte_Transmit(ETX);
+//	FRAME_SYNC_Byte_Transmit(ETX);
+	temp_packet[packet_length++] = ETX;
 
 	if(size != 1 && *tx_frame != ACK && *tx_frame != NACK)
 	{
@@ -184,6 +199,8 @@ void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time
 	}
 
 	FS_Data.last_transmit_frame_timer = HAL_GetTick();
+
+	FRAME_SYNC_Packet_Transmit(temp_packet, packet_length);
 }
 
 void FRAME_SYNC_Receive(uint8_t rx_data)
@@ -286,4 +303,6 @@ void FRAME_SYNC_Handle(){
 	{
 		FS_Data.device_state = FRAME_SYNC_READY_TO_TRANSMIT;
 	}
+
+	FRAME_SYNC_Packet_Receive();
 }

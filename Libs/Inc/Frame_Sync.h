@@ -57,5 +57,7 @@ void FRAME_SYNC_RxFailCallback(uint8_t *p_rx_data, uint8_t data_size);
 void FRAME_SYNC_Handle();
 
 void FRAME_SYNC_Byte_Transmit(uint8_t tx_data);
+void FRAME_SYNC_Packet_Transmit(uint8_t* tx_buffer, uint8_t tx_buffer_length);
+void FRAME_SYNC_Packet_Receive();
 
 #endif
