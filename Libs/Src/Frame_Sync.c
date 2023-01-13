@@ -2,9 +2,7 @@
 #include "checksum.h"
 #include "SX1278.h"
 
-#define MY_ID						0
-
-#define WAITING_ACK_TIME			10000
+#define WAITING_ACK_TIME			3000
 #define WAITING_REPLY_TIME			10000
 #define	WAITING_NEXT_BYTE_TIME		500
 
@@ -63,7 +61,7 @@ static void validate_packet()
 	if(FS_Data.rx_packet.crc32 != FS_Data.rx_checksum)
 	{
 		temp_data = NACK;
-		FRAME_SYNC_Transmit(FS_Data.rx_packet.src_id, FS_Data.rx_packet.src_id, 1, &temp_data, 1, 0);
+		FRAME_SYNC_Send_Frame(FS_Data.rx_packet.src_id, FS_Data.rx_packet.src_id, 1, &temp_data, 1, 0);
 		FRAME_SYNC_RxFailCallback(FS_Data.rx_packet.buffer, FS_Data.rx_packet.length);
 		Rx_Reset();
 		return;
@@ -86,7 +84,7 @@ static void validate_packet()
 			if(FS_Data.device_state == FRAME_SYNC_WAITING_ACK)
 			{
 				FS_Data.device_state = FRAME_SYNC_READY_TO_TRANSMIT;
-				FRAME_SYNC_Transmit(FS_Data.stored_packet.final_des_id, FS_Data.stored_packet.temp_des_id, FS_Data.stored_packet.time_to_live - 1,
+				FRAME_SYNC_Send_Frame(FS_Data.stored_packet.final_des_id, FS_Data.stored_packet.temp_des_id, FS_Data.stored_packet.time_to_live - 1,
 						FS_Data.stored_packet.buffer, FS_Data.stored_packet.length, FS_Data.stored_packet.is_requiring_reply);
 			}
 			break;
@@ -96,19 +94,35 @@ static void validate_packet()
 				if(FS_Data.device_state == FRAME_SYNC_WAITING_REPLY)
 				{
 					FS_Data.device_state = FRAME_SYNC_READY_TO_TRANSMIT;
+					temp_data = ACK;
+					FRAME_SYNC_Send_Frame(FS_Data.rx_packet.src_id, FS_Data.rx_packet.src_id, 1, &temp_data, 1, 0);
+					FRAME_SYNC_RxCpltCallback(FS_Data.rx_packet);
+					Rx_Reset();
+					return;
 				}
+
+				FS_Data.device_state = FRAME_SYNC_READY_TO_TRANSMIT;
 				temp_data = ACK;
-				FRAME_SYNC_Transmit(FS_Data.rx_packet.src_id, FS_Data.rx_packet.src_id, 1, &temp_data, 1, 0);
-				if(FS_Data.rx_packet.final_des_id != FS_Data.my_id)
+				FRAME_SYNC_Send_Frame(FS_Data.rx_packet.src_id, FS_Data.rx_packet.src_id, 1, &temp_data, 1, 0);
+
+				if(FS_Data.rx_packet.final_des_id > FS_Data.my_id)
 				{
-					FRAME_SYNC_Transmit(FS_Data.rx_packet.final_des_id, FS_Data.rx_packet.temp_des_id + 1, FS_Data.rx_packet.time_to_live - 1,
+					FRAME_SYNC_Send_Frame(FS_Data.rx_packet.final_des_id, FS_Data.rx_packet.temp_des_id + 1, FS_Data.rx_packet.time_to_live - 1,
 							FS_Data.rx_packet.buffer, FS_Data.rx_packet.length, FS_Data.stored_packet.is_requiring_reply);
+				}
+				else if(FS_Data.rx_packet.final_des_id < FS_Data.my_id)
+				{
+					FRAME_SYNC_Send_Frame(FS_Data.rx_packet.final_des_id, FS_Data.rx_packet.temp_des_id - 1, FS_Data.rx_packet.time_to_live - 1,
+							FS_Data.rx_packet.buffer, FS_Data.rx_packet.length, FS_Data.stored_packet.is_requiring_reply);
+				}
+				else
+				{
+					FRAME_SYNC_RxCpltCallback(FS_Data.rx_packet);
 				}
 			}
 
 			break;
 	}
-	FRAME_SYNC_RxCpltCallback(FS_Data.rx_packet.buffer, FS_Data.rx_packet.length);
 	Rx_Reset();
 }
 
@@ -122,7 +136,8 @@ void FRAME_SYNC_Change_Setting(FRAME_SYNC_DATA_t *p_new_data)
 	FS_Data = *p_new_data;
 }
 
-void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time_to_live, uint8_t *tx_frame, uint8_t size, uint8_t is_requiring_reply)
+// STX Final_Des Temp_Des TTL Len Data 4_byte_CRC EXT
+void FRAME_SYNC_Send_Frame(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time_to_live, uint8_t *tx_frame, uint8_t size, uint8_t is_requiring_reply)
 {
 	uint8_t temp_packet[MAX_LENGTH_DATA] = {STX};
 	uint8_t packet_length = 1;
@@ -131,48 +146,37 @@ void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time
 	FS_Data.tx_checksum = 0xFFFFFFFF;
 
 	// Transmit STX
-//	FRAME_SYNC_Byte_Transmit(STX);
 
 	// Transmit final destination device id
 	CRC_Update(&FS_Data.tx_checksum, final_des_id);
-//	FRAME_SYNC_Byte_Transmit(final_des_id);
 	temp_packet[packet_length++] = final_des_id;
 
 	// Transmit temporary destination device id
 	CRC_Update(&FS_Data.tx_checksum, temp_des_id);
-//	FRAME_SYNC_Byte_Transmit(temp_des_id);
 	temp_packet[packet_length++] = temp_des_id;
 
 	// Transmit source device id
 	CRC_Update(&FS_Data.tx_checksum, FS_Data.my_id);
-//	FRAME_SYNC_Byte_Transmit(FS_Data.my_id);
 	temp_packet[packet_length++] = FS_Data.my_id;
 
 	// Transmit time to live
 	CRC_Update(&FS_Data.tx_checksum, time_to_live);
-//	FRAME_SYNC_Byte_Transmit(time_to_live);
 	temp_packet[packet_length++] = time_to_live;
 
 	// Transmit data length
 	CRC_Update(&FS_Data.tx_checksum, size);
-//	FRAME_SYNC_Byte_Transmit(size);
 	temp_packet[packet_length++] = size;
 
 	// Transmit data
 	for(int i = 0; i < size; i++)
 	{
 		CRC_Update(&FS_Data.tx_checksum, tx_frame[i]);
-//		FRAME_SYNC_Byte_Transmit(tx_frame[i]);
 		FS_Data.stored_packet.buffer[i] = tx_frame[i];
 		temp_packet[packet_length++] = tx_frame[i];
 	}
 
 	// Transmit crc
 	FS_Data.tx_checksum = ~FS_Data.tx_checksum;
-//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 0));
-//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 1));
-//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 2));
-//	FRAME_SYNC_Byte_Transmit(*((uint8_t *)&FS_Data.tx_checksum + 3));
 	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 0);
 	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 1);
 	temp_packet[packet_length++] = *((uint8_t *)&FS_Data.tx_checksum + 2);
@@ -182,21 +186,30 @@ void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time
 //	FRAME_SYNC_Byte_Transmit(ETX);
 	temp_packet[packet_length++] = ETX;
 
-	if(size != 1 && *tx_frame != ACK && *tx_frame != NACK)
+	if(*tx_frame != ACK && *tx_frame != NACK)
 	{
 		FS_Data.device_state = FRAME_SYNC_WAITING_ACK;
-		FS_Data.stored_packet.final_des_id = final_des_id;
-		FS_Data.stored_packet.temp_des_id = temp_des_id;
-		FS_Data.stored_packet.src_id = FS_Data.my_id;
-		FS_Data.stored_packet.time_to_live = time_to_live;
-		FS_Data.stored_packet.length = size;
-		for(int i = 0; i < size; i++)
-		{
-			FS_Data.stored_packet.buffer[i] = tx_frame[i];
-		}
-		FS_Data.stored_packet.crc32 = FS_Data.tx_checksum;
+	}
+
+	FS_Data.stored_packet.final_des_id = final_des_id;
+	FS_Data.stored_packet.temp_des_id = temp_des_id;
+	FS_Data.stored_packet.src_id = FS_Data.my_id;
+	FS_Data.stored_packet.time_to_live = time_to_live;
+	FS_Data.stored_packet.length = size;
+	for(int i = 0; i < size; i++)
+	{
+		FS_Data.stored_packet.buffer[i] = tx_frame[i];
+	}
+	FS_Data.stored_packet.crc32 = FS_Data.tx_checksum;
+	if(FS_Data.my_id == 0)
+	{
 		FS_Data.stored_packet.is_requiring_reply = is_requiring_reply;
 	}
+	else
+	{
+		FS_Data.stored_packet.is_requiring_reply = 0;
+	}
+
 
 	FS_Data.last_transmit_frame_timer = HAL_GetTick();
 
@@ -216,7 +229,7 @@ void FRAME_SYNC_Receive(uint8_t rx_data)
 			else
 			{
 				Rx_Reset();
-				FRAME_SYNC_RxFailCallback(FS_Data.rx_packet.buffer, FS_Data.rx_packet.length);
+//				FRAME_SYNC_RxFailCallback(FS_Data.rx_packet.buffer, FS_Data.rx_packet.length);
 			}
 			break;
 		case RECEIVING_FINAL_DES_ID:
@@ -225,6 +238,11 @@ void FRAME_SYNC_Receive(uint8_t rx_data)
 			FS_Data.rx_state = RECEIVING_TEMP_DES_ID;
 			break;
 		case RECEIVING_TEMP_DES_ID:
+			if(rx_data != MY_ID)
+			{
+				Rx_Reset();
+				return;
+			}
 			CRC_Update(&FS_Data.rx_checksum, rx_data);
 			FS_Data.rx_packet.temp_des_id = rx_data;
 			FS_Data.rx_state = RECEIVING_SRC_ID;
@@ -290,7 +308,7 @@ void FRAME_SYNC_Handle(){
 		if(FS_Data.stored_packet.time_to_live - 1 != 0)
 		{
 			FS_Data.device_state = FRAME_SYNC_READY_TO_TRANSMIT;
-			FRAME_SYNC_Transmit(FS_Data.stored_packet.final_des_id, FS_Data.stored_packet.temp_des_id, FS_Data.stored_packet.time_to_live - 1,
+			FRAME_SYNC_Send_Frame(FS_Data.stored_packet.final_des_id, FS_Data.stored_packet.temp_des_id, FS_Data.stored_packet.time_to_live - 1,
 					FS_Data.stored_packet.buffer, FS_Data.stored_packet.length, FS_Data.stored_packet.is_requiring_reply);
 		}
 		else
@@ -305,4 +323,9 @@ void FRAME_SYNC_Handle(){
 	}
 
 	FRAME_SYNC_Packet_Receive();
+}
+
+uint8_t FRAME_SYNC_Is_Ready_Transmit()
+{
+	return (FS_Data.device_state == FRAME_SYNC_READY_TO_TRANSMIT) ? 1 : 0;
 }

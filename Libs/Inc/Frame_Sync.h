@@ -3,6 +3,8 @@
 
 #include "main.h"
 
+#define MY_ID			0
+
 #define MAX_LENGTH_DATA 255
 
 enum{
@@ -31,6 +33,7 @@ typedef struct
 
 	// Transmitting variable
 	uint32_t tx_checksum;									// Transmiting crc bits
+	PACKET_STRUCTURE packed_buffer[10];
 
 	// Receiving variable
 	uint32_t rx_checksum;									// Reveiving crc bits
@@ -50,14 +53,18 @@ typedef struct
 
 void FRAME_SYNC_Init();
 void FRAME_SYNC_Change_Setting(FRAME_SYNC_DATA_t *p_new_data);
-void FRAME_SYNC_Transmit(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time_to_live, uint8_t *tx_frame, uint8_t size, uint8_t is_requiring_reply);
+void FRAME_SYNC_Send_Frame(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time_to_live, uint8_t *tx_frame, uint8_t size, uint8_t is_requiring_reply);
 void FRAME_SYNC_Receive(uint8_t rx_data);
-void FRAME_SYNC_RxCpltCallback(uint8_t *p_rx_data, uint8_t data_size);
+void FRAME_SYNC_RxCpltCallback(PACKET_STRUCTURE rx_packet);
 void FRAME_SYNC_RxFailCallback(uint8_t *p_rx_data, uint8_t data_size);
 void FRAME_SYNC_Handle();
 
 void FRAME_SYNC_Byte_Transmit(uint8_t tx_data);
 void FRAME_SYNC_Packet_Transmit(uint8_t* tx_buffer, uint8_t tx_buffer_length);
 void FRAME_SYNC_Packet_Receive();
+
+uint8_t FRAME_SYNC_Is_Ready_Transmit();
+
+extern FRAME_SYNC_DATA_t FS_Data;
 
 #endif

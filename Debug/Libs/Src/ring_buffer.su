@@ -1,4 +1,4 @@
 ../Libs/Src/ring_buffer.c:3:6:RING_BUFFER_Init	24	static
 ../Libs/Src/ring_buffer.c:10:8:RING_BUFFER_Push	24	static
-../Libs/Src/ring_buffer.c:26:8:RING_BUFFER_Pop	24	static
-../Libs/Src/ring_buffer.c:42:10:RING_BUFFER_Available	16	static
+../Libs/Src/ring_buffer.c:27:8:RING_BUFFER_Pop	24	static
+../Libs/Src/ring_buffer.c:43:10:RING_BUFFER_Available	16	static

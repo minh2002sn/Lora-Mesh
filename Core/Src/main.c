@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2022 STMicroelectronics.
+  * Copyright (c) 2023 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -25,10 +25,10 @@
 #include "Command_Line.h"
 #include "Frame_Sync.h"
 #include "button.h"
-#include "uart.h"
 #include <string.h>
 #include <stdio.h>
 #include "SX1278.h"
+#include "ring_buffer.h"
 
 /* USER CODE END Includes */
 
@@ -49,8 +49,7 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 
-UART_HandleTypeDef huart2;
-UART_HandleTypeDef huart6;
+UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
@@ -59,15 +58,18 @@ UART_HandleTypeDef huart6;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_USART6_UART_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+PACKET_STRUCTURE command_buffer[10];
+RING_BUFFER_HandleTypeDef ring_buffer;
+
 //SX1278_hw_t hlora_hw = {{RST_Pin, RST_GPIO_Port}, {D0_Pin, D0_GPIO_Port}, {NSS_Pin, NSS_GPIO_Port}, &hspi1};
 SX1278_hw_t hlora_hw;
 SX1278_t hlora;
@@ -77,62 +79,74 @@ uint8_t num_rx_byte = 0;
 uint8_t uart_rx_buf = 0;
 
 BUTTON_HandleTypedef btn;
-
-/*
- * CRC 8	10 02 00 11 22 33 D4 10 03
- * CRC 16	10 02 00 11 22 33 B0 08 10 03
- * CRC 32	10 02 00 11 22 33 24 C2 31 6D 10 03
- */
-//uint8_t tx_frame_data[] = {0x00, 0x11, 0x22, 0x33};
 uint8_t tx_frame_data[255];
 uint8_t tx_frame_len = 0;
-void BUTTON_Press_Short_Callback(BUTTON_HandleTypedef *ButtonX)
+
+void Push_Command_To_Ring_Buffer(uint8_t final_des_id, uint8_t temp_des_id, uint8_t time_to_live, uint8_t is_requiring_reply, uint8_t length, uint8_t buffer[])
 {
-	if(ButtonX == &btn)
+	PACKET_STRUCTURE temp_data = {final_des_id, temp_des_id, FS_Data.my_id, time_to_live, length};
+	for(int i = 0; i < length; i++)
 	{
-		uint8_t str[] = "Sended\n";
-		HAL_UART_Transmit(&huart6, str, strlen((char *)str), 1000);
-		FRAME_SYNC_Transmit(2, 1, 5, tx_frame_data, tx_frame_len, 0);
+		temp_data.buffer[i] = buffer[i];
+	}
+	temp_data.is_requiring_reply = is_requiring_reply;
+	RING_BUFFER_Push(&ring_buffer, temp_data);
+}
+
+void Command_Sending_Handle()
+{
+	if(RING_BUFFER_Available(&ring_buffer) && FRAME_SYNC_Is_Ready_Transmit())
+	{
+		PACKET_STRUCTURE temp_data;
+		RING_BUFFER_Pop(&ring_buffer, &temp_data);
+		FRAME_SYNC_Send_Frame(temp_data.final_des_id, temp_data.temp_des_id, temp_data.time_to_live, temp_data.buffer, temp_data.length, temp_data.is_requiring_reply);
 	}
 }
 
-void FRAME_SYNC_RxCpltCallback(uint8_t *p_rx_data, uint8_t data_size)
+void FRAME_SYNC_RxCpltCallback(PACKET_STRUCTURE rx_packet)
 {
-	char tx_str[100] = "\nData: ";
-	for(int i = 0; i < data_size; i++)
+#if MY_ID != 0
+	static uint32_t counter = 0;
+	if(rx_packet.buffer[0] == 0x02)
+	{
+		counter++;
+		uint8_t temp_cmd[] = {rx_packet.buffer[0], FS_Data.my_id, counter};
+		Push_Command_To_Ring_Buffer(0, FS_Data.my_id - 1, 7, 0, sizeof(temp_cmd), temp_cmd);
+	}
+#endif
+
+	char tx_str[100] = {};
+	sprintf(tx_str, "\nSource ID: %02X\nData: ", rx_packet.src_id);
+	for(int i = 0; i < rx_packet.length; i++)
 	{
 		char temp_str[4];
-		sprintf(temp_str, "%02X ", p_rx_data[i]);
+		sprintf(temp_str, "%02X ", rx_packet.buffer[i]);
 		strcat(tx_str, temp_str);
 	}
 	strcat(tx_str, "\nCRC Correct\n");
-	HAL_UART_Transmit(&huart6, (uint8_t *)tx_str, strlen(tx_str), 1000);
+	HAL_UART_Transmit(&huart1, (uint8_t *)tx_str, strlen(tx_str), 1000);
 
 }
 
 void FRAME_SYNC_RxFailCallback(uint8_t *p_rx_data, uint8_t data_size)
 {
 	char tx_str[100] = "\nCRC Fail\n";
-	HAL_UART_Transmit(&huart6, (uint8_t *)tx_str, strlen(tx_str), 1000);
+	HAL_UART_Transmit(&huart1, (uint8_t *)tx_str, strlen(tx_str), 1000);
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if(huart->Instance == huart6.Instance)
+	if(huart->Instance == huart1.Instance)
 	{
 		COMMAND_LINE_Receive(uart_rx_buf);
-		HAL_UART_Receive_IT(&huart6, &uart_rx_buf, 1);
-	}
-	else if(huart->Instance == huart2.Instance)
-	{
-//		UART_Receive(uart_rx_buf);
-		HAL_UART_Receive_IT(&huart2, &uart_rx_buf, 1);
+		HAL_UART_Receive_IT(&huart1, &uart_rx_buf, 1);
 	}
 }
 
 void FRAME_SYNC_Packet_Transmit(uint8_t* tx_buffer, uint8_t tx_buffer_length)
 {
 	SX1278_transmit(&hlora, tx_buffer, tx_buffer_length, 2000);
+	SX1278_LoRaEntryRx(&hlora, 0, 2000);
 }
 
 void FRAME_SYNC_Packet_Receive()
@@ -148,7 +162,6 @@ void FRAME_SYNC_Packet_Receive()
 		SX1278_read(&hlora, LoRa_Rx_Buffer, num_rx_byte);
 		for(int i = 0; i < num_rx_byte; i++)
 		{
-			HAL_UART_Transmit(&huart6, LoRa_Rx_Buffer + i, 1, 1000);
 			FRAME_SYNC_Receive(LoRa_Rx_Buffer[i]);
 		}
 	}
@@ -184,9 +197,8 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
-  MX_USART6_UART_Init();
   MX_SPI1_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
   hlora_hw.dio0.port = D0_GPIO_Port;
@@ -201,14 +213,23 @@ int main(void)
   SX1278_init(&hlora, 434000000, SX1278_POWER_20DBM, SX1278_LORA_SF_12,
 		  SX1278_LORA_BW_500KHZ, SX1278_LORA_CR_4_8, SX1278_LORA_CRC_EN, 10);
 
-  BUTTON_Init(&btn, GPIOA, GPIO_PIN_0, 0);
-  BUTTON_Set_Callback_Function(NULL, NULL, BUTTON_Press_Short_Callback, NULL);
-
-  HAL_UART_Receive_IT(&huart6, &uart_rx_buf, 1);
-  HAL_UART_Receive_IT(&huart2, &uart_rx_buf, 1);
-  UART_Init();
+  HAL_UART_Receive_IT(&huart1, &uart_rx_buf, 1);
 
   SX1278_LoRaEntryRx(&hlora, 0, 2000);
+
+  RING_BUFFER_Init(&ring_buffer, command_buffer, 10);
+
+//#if MY_ID == 0
+////	  static uint32_t timer = 0;
+////	  if(HAL_GetTick() - timer > 5000)
+////	  {
+//		  uint8_t temp_cmd[] = {0x02};
+//		  Push_Command_To_Ring_Buffer(1, 1, 7, 1, sizeof(temp_cmd), temp_cmd);
+////		  Push_Command_To_Ring_Buffer(2, 1, 7, 1, sizeof(temp_cmd), temp_cmd);
+//		  Push_Command_To_Ring_Buffer(4, 1, 7, 0, sizeof(temp_cmd), temp_cmd);
+////		  timer = HAL_GetTick();
+////	  }
+//#endif
 
   /* USER CODE END 2 */
 
@@ -220,23 +241,27 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  BUTTON_Handle(&btn);
+#if MY_ID == 0
+	  static uint32_t timer = 0;
+	  if(HAL_GetTick() - timer > 30000)
+	  {
+		  uint8_t temp_cmd[] = {0x02};
+		  Push_Command_To_Ring_Buffer(1, 1, 7, 1, sizeof(temp_cmd), temp_cmd);
+		  Push_Command_To_Ring_Buffer(2, 1, 7, 1, sizeof(temp_cmd), temp_cmd);
+		  Push_Command_To_Ring_Buffer(3, 1, 7, 1, sizeof(temp_cmd), temp_cmd);
+		  Push_Command_To_Ring_Buffer(4, 1, 7, 0, sizeof(temp_cmd), temp_cmd);
+		  timer = HAL_GetTick();
+	  }
+#endif
 
-//	  UART_Handle();
+//	  BUTTON_Handle(&btn);
 
-	  COMMAND_LINE_Handle();
+//	  COMMAND_LINE_Handle();
 
 	  FRAME_SYNC_Handle();
 
-//	  uint8_t str[] = "Minh";
-//	  SX1278_transmit(&hlora, str, sizeof((char *)str), 1000);
+	  Command_Sending_Handle();
 
-//	  uint8_t num = SX1278_LoRaRxPacket(&hlora);
-//	  if(num)
-//	  {
-//		  SX1278_read(&hlora, LoRa_Rx_Buffer, num);
-//		  HAL_UART_Transmit(&huart6, LoRa_Rx_Buffer, num, 1000);
-//	  }
 
   }
   /* USER CODE END 3 */
@@ -251,23 +276,16 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 72;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -327,68 +345,35 @@ static void MX_SPI1_Init(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
+  * @brief USART1 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART2_UART_Init(void)
+static void MX_USART1_UART_Init(void)
 {
 
-  /* USER CODE BEGIN USART2_Init 0 */
+  /* USER CODE BEGIN USART1_Init 0 */
 
-  /* USER CODE END USART2_Init 0 */
+  /* USER CODE END USART1_Init 0 */
 
-  /* USER CODE BEGIN USART2_Init 1 */
+  /* USER CODE BEGIN USART1_Init 1 */
 
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
+  /* USER CODE BEGIN USART1_Init 2 */
 
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
-  * @brief USART6 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART6_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART6_Init 0 */
-
-  /* USER CODE END USART6_Init 0 */
-
-  /* USER CODE BEGIN USART6_Init 1 */
-
-  /* USER CODE END USART6_Init 1 */
-  huart6.Instance = USART6;
-  huart6.Init.BaudRate = 115200;
-  huart6.Init.WordLength = UART_WORDLENGTH_8B;
-  huart6.Init.StopBits = UART_STOPBITS_1;
-  huart6.Init.Parity = UART_PARITY_NONE;
-  huart6.Init.Mode = UART_MODE_TX_RX;
-  huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart6.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART6_Init 2 */
-
-  /* USER CODE END USART6_Init 2 */
+  /* USER CODE END USART1_Init 2 */
 
 }
 
@@ -402,35 +387,24 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, RST_Pin|NSS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, RST_Pin|NSS_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PA0 D0_Pin */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|D0_Pin;
+  /*Configure GPIO pin : D0_Pin */
+  GPIO_InitStruct.Pin = D0_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(D0_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RST_Pin NSS_Pin */
   GPIO_InitStruct.Pin = RST_Pin|NSS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PD12 PD13 PD14 PD15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 

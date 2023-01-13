@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern UART_HandleTypeDef huart6;
+extern UART_HandleTypeDef huart1;
 extern uint8_t tx_frame_data[255];
 extern uint8_t tx_frame_len;
 
@@ -61,7 +61,7 @@ void COMMAND_LINE_Handle(){
 				tx_frame_data[i] = str2hex(arg_list[i + 1]);
 			}
 			uint8_t temp_str[] = "OK\n";
-			HAL_UART_Transmit(&huart6, temp_str, 3, 100);
+			HAL_UART_Transmit(&huart1, temp_str, 3, 100);
 		}
 
 		cl_pointer = 0;
